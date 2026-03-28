@@ -1,0 +1,124 @@
+// This file is part of www.nand2tetris.org
+// and the book "The Elements of Computing Systems"
+// by Nisan and Schocken, MIT Press.
+// File name: projects/5/CPU.hdl
+/**
+ * The Hack Central Processing unit (CPU).
+ * Parses the binary code in the instruction input and executes it according to the
+ * Hack machine language specification. In the case of a C-instruction, computes the
+ * function specified by the instruction. If the instruction specifies to read a memory
+ * value, the inM input is expected to contain this value. If the instruction specifies
+ * to write a value to the memory, sets the outM output to this value, sets the addressM
+ * output to the target address, and asserts the writeM output (when writeM = 0, any
+ * value may appear in outM).
+ * If the reset input is 0, computes the address of the next instruction and sets the
+ * pc output to that value. If the reset input is 1, sets pc to 0.
+ * Note: The outM and writeM outputs are combinational: they are affected by the
+ * instruction's execution during the current cycle. The addressM and pc outputs are
+ * clocked: although they are affected by the instruction's execution, they commit to
+ * their new values only in the next cycle.
+ */
+CHIP CPU {
+
+    IN  inM[16],         // M value input  (M = contents of RAM[A])
+        instruction[16], // Instruction for execution
+        reset;           // Signals whether to re-start the current
+                         // program (reset==1) or continue executing
+                         // the current program (reset==0).
+
+    OUT outM[16],        // M value output
+        writeM,          // Write to M? 
+        addressM[15],    // Address in data memory (of M)
+        pc[15];          // address of next instruction
+
+    PARTS:
+    // A register
+    // A-instruction if instruction[15]=0 else C-instruction
+    // Update A register when dest in [A, AM, AD, AMD]
+    Mux16(a=instruction, b=ALUOutput, sel=instruction[15], out=t1);
+    Not(in=instruction[15], out=notInst15);
+    Or(a=notInst15, b=instruction[5], out=ARegisterLoad);
+    Register(
+        in=t1, load=ARegisterLoad, 
+        out=ARegisterOut, out[0..14]=addressM
+    );
+
+    // Second Mux
+    Mux16(a=ARegisterOut, b=inM, sel=instruction[12], out=t2);
+
+    // D register
+    And(a=instruction[15], b=instruction[4], out=DRegisterLoad);
+    DRegister(in=ALUOutput, load=DRegisterLoad, out=DRegisterOut);
+
+    // ALU
+    // if (zx == 1) sets x = 0        // 16-bit constant
+    // if (nx == 1) sets x = !x       // bitwise not
+    // if (zy == 1) sets y = 0        // 16-bit constant
+    // if (ny == 1) sets y = !y       // bitwise not
+    // if (f == 1)  sets out = x + y  // integer 2's complement addition
+    // if (f == 0)  sets out = x & y  // bitwise and
+    // if (no == 1) sets out = !out   // bitwise not
+    // if (out == 0) zr = 1, else zr = 0
+    // if (out < 0)  ng = 1, else ng = 0
+    ALU(x=DRegisterOut, y=t2, 
+        zx=instruction[11], 
+        nx=instruction[10], 
+        zy=instruction[9], 
+        ny=instruction[8], 
+        f=instruction[7], 
+        no=instruction[6], 
+        out=ALUOutput,
+        out=outM,
+        zr=zr, 
+        ng=ng);
+
+    // PC - A 16-bit counter.
+    // if      reset(t): out(t+1) = 0
+    // else if load(t):  out(t+1) = in(t)
+    // else if inc(t):   out(t+1) = out(t) + 1
+    // else              out(t+1) = out(t)
+
+    // PC load - When C-instruction
+    // if j1j2j3=001 and zr=0 and ng=0
+    // if j1j2j3=010 and zr=1
+    // if j1j2j3=011 and (zr=1 or (zr=0 and ng=0))
+    // if j1j2j3=100 and ng=1
+    // if j1j2j3=101 and zr=0
+    // if j1j2j3=110 and (zr=1 or ng=1)
+    // if j1j2j3=111
+    // isCinstruction AND (
+    //   (j1=0 AND j2=0 AND j3=1 AND zr=0 AND ng=0) OR
+    //   (j1=0 AND j2=1 AND j3=0 AND zr=1) OR
+    //   (j1=0 AND j2=1 AND j3=1 AND (zr=1 OR (zr=0 AND ng=0))) OR
+    //   (j1=1 AND j2=0 AND j3=0 AND ng=1) OR
+    //   (j1=1 AND j2=0 AND j3=1 AND zr=0) OR
+    //   (j1=1 AND j2=1 AND j3=0 AND (zr=1 OR ng=1)) OR
+    //   (j1=1 AND j2=1 AND j3=1)
+    // )
+    // After simplify
+    // instruction[15] AND (
+    //  ( zr=0 AND ng=0 AND j3 ) OR
+    //  ( zr=1 AND j2 ) OR
+    //  ( ng=1 AND j1 )
+    //)
+    Not(in=zr, out=notZr);
+    Not(in=ng, out=notNg);
+    And(a=notZr, b=notNg, out=isPositive);
+    And(a=isPositive, b=instruction[0], out=j3Out);
+    And(a=zr, b=instruction[1], out=j2Out);
+    And(a=ng, b=instruction[2], out=j1Out);
+
+    Or(a=j1Out, b=j2Out, out=j1j2Out);
+    Or(a=j1j2Out, b=j3Out, out=jOut);
+    And(a=instruction[15], b=jOut, out=PCLoad);
+
+    // PC - inc
+    Not(in=PCLoad, out=inc);
+    PC(in=ARegisterOut, load=PCLoad, inc=inc, reset=reset, out[0..14]=pc);
+
+    // writeM
+    // Under C-instruction:
+    //   output 1 if d1d2d3 in [001, 011, 101, 111]
+    //   which means it can judge by d3
+    And(a=instruction[15], b=instruction[3], out=writeM);
+}
