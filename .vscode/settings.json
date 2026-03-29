@@ -1,0 +1,6 @@
+{
+    "editor.wordBasedSuggestions": "off",
+    "github.copilot.enable": {
+        "*": false
+    }
+}
