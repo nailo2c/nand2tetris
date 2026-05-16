@@ -1,0 +1,401 @@
+/**
+ * A compact Space Invaders style game for nand2tetris Project 9.
+ * Move with the left and right arrows, fire with space, quit with Q or ESC.
+ */
+class SpaceInvadersGame {
+    field Array invX, invY, invAlive;
+    field int invaderCount, aliveCount;
+    field int invaderWidth, invaderHeight;
+    field int playerX, playerY, playerWidth, playerHeight;
+    field int bulletX, bulletY;
+    field boolean bulletActive;
+    field int fleetDirection;
+    field int score, tick;
+    field boolean exit, gameOver, won;
+
+    /** Creates and draws a new game. */
+    constructor SpaceInvadersGame new() {
+        let invaderCount = 18;
+        let aliveCount = 18;
+        let invaderWidth = 18;
+        let invaderHeight = 10;
+
+        let playerWidth = 30;
+        let playerHeight = 8;
+        let playerX = 241;
+        let playerY = 220;
+
+        let bulletX = 0;
+        let bulletY = 0;
+        let bulletActive = false;
+
+        let fleetDirection = 1;
+        let score = 0;
+        let tick = 0;
+        let exit = false;
+        let gameOver = false;
+        let won = false;
+
+        let invX = Array.new(invaderCount);
+        let invY = Array.new(invaderCount);
+        let invAlive = Array.new(invaderCount);
+
+        do Screen.clearScreen();
+        do initInvaders();
+        do drawHud();
+        do drawPlayer();
+        do drawAllInvaders();
+
+        return this;
+    }
+
+    /** Frees arrays and this object. */
+    method void dispose() {
+        do invX.dispose();
+        do invY.dispose();
+        do invAlive.dispose();
+        do Memory.deAlloc(this);
+        return;
+    }
+
+    /** Runs the main game loop. */
+    method void run() {
+        var char key;
+
+        while (((~exit) & (~gameOver)) & (~won)) {
+            let key = Keyboard.keyPressed();
+            do handleKey(key);
+            do updateBullet();
+
+            let tick = tick + 1;
+            if (tick > 4) {
+                let tick = 0;
+                do updateInvaders();
+            }
+
+            if (aliveCount = 0) {
+                let won = true;
+            }
+
+            do Sys.wait(18);
+        }
+
+        if (~exit) {
+            do showEndMessage();
+            do waitForExit();
+        }
+
+        return;
+    }
+
+    /** Initializes invader positions in a 3 by 6 grid. */
+    method void initInvaders() {
+        var int row, col, index;
+
+        let row = 0;
+        while (row < 3) {
+            let col = 0;
+            while (col < 6) {
+                let index = (row * 6) + col;
+                let invX[index] = 65 + (col * 55);
+                let invY[index] = 40 + (row * 28);
+                let invAlive[index] = 1;
+                let col = col + 1;
+            }
+            let row = row + 1;
+        }
+
+        return;
+    }
+
+    /** Handles one keyboard sample. */
+    method void handleKey(char key) {
+        if (key = 130) {
+            do movePlayer(-7);
+        }
+
+        if (key = 132) {
+            do movePlayer(7);
+        }
+
+        if (key = 32) {
+            do fireBullet();
+        }
+
+        if (key = 81) {
+            let exit = true;
+        }
+
+        if (key = 113) {
+            let exit = true;
+        }
+
+        if (key = 140) {
+            let exit = true;
+        }
+
+        return;
+    }
+
+    /** Moves the player cannon by dx pixels. */
+    method void movePlayer(int dx) {
+        var int oldX;
+
+        let oldX = playerX;
+        let playerX = playerX + dx;
+
+        if (playerX < 0) {
+            let playerX = 0;
+        }
+
+        if ((playerX + playerWidth) > 511) {
+            let playerX = 511 - playerWidth;
+        }
+
+        if (~(oldX = playerX)) {
+            do erasePlayerAt(oldX);
+            do drawPlayer();
+        }
+
+        return;
+    }
+
+    /** Draws the player at its current position. */
+    method void drawPlayer() {
+        do Screen.setColor(true);
+        do Screen.drawRectangle(playerX, playerY, playerX + playerWidth, playerY + playerHeight);
+        do Screen.drawRectangle(playerX + 13, playerY - 5, playerX + 17, playerY - 1);
+        return;
+    }
+
+    /** Erases the player from the given x coordinate. */
+    method void erasePlayerAt(int x) {
+        do Screen.setColor(false);
+        do Screen.drawRectangle(x, playerY - 5, x + playerWidth, playerY + playerHeight);
+        return;
+    }
+
+    /** Fires a bullet if no bullet is currently active. */
+    method void fireBullet() {
+        if (~bulletActive) {
+            let bulletActive = true;
+            let bulletX = playerX + 14;
+            let bulletY = playerY - 13;
+            do drawBullet();
+        }
+
+        return;
+    }
+
+    /** Moves the bullet upward and resolves hits. */
+    method void updateBullet() {
+        if (bulletActive) {
+            do eraseBullet();
+            let bulletY = bulletY - 7;
+
+            if (bulletY < 10) {
+                let bulletActive = false;
+            }
+            else {
+                do checkBulletHit();
+                if (bulletActive) {
+                    do drawBullet();
+                }
+            }
+        }
+
+        return;
+    }
+
+    /** Draws the current bullet. */
+    method void drawBullet() {
+        do Screen.setColor(true);
+        do Screen.drawRectangle(bulletX, bulletY, bulletX + 2, bulletY + 7);
+        return;
+    }
+
+    /** Erases the current bullet. */
+    method void eraseBullet() {
+        do Screen.setColor(false);
+        do Screen.drawRectangle(bulletX, bulletY, bulletX + 2, bulletY + 7);
+        return;
+    }
+
+    /** Checks whether the active bullet hits an invader. */
+    method void checkBulletHit() {
+        var int i, x, y;
+        var boolean hit;
+
+        let i = 0;
+        let hit = false;
+        while ((i < invaderCount) & (~hit)) {
+            if (invAlive[i] = 1) {
+                let x = invX[i];
+                let y = invY[i];
+                if ((((bulletX < (x + invaderWidth)) & ((bulletX + 2) > x)) & (bulletY < (y + invaderHeight))) & ((bulletY + 7) > y)) {
+                    do eraseInvader(i);
+                    let invAlive[i] = 0;
+                    let aliveCount = aliveCount - 1;
+                    let score = score + 10;
+                    let bulletActive = false;
+                    let hit = true;
+                    do updateScore();
+                }
+            }
+            let i = i + 1;
+        }
+
+        return;
+    }
+
+    /** Moves the invader fleet one step. */
+    method void updateInvaders() {
+        var int i, dx, dy;
+        var boolean shouldDrop;
+
+        let i = 0;
+        let shouldDrop = false;
+        while (i < invaderCount) {
+            if (invAlive[i] = 1) {
+                if (fleetDirection = 1) {
+                    if ((invX[i] + invaderWidth) > 500) {
+                        let shouldDrop = true;
+                    }
+                }
+                else {
+                    if (invX[i] < 8) {
+                        let shouldDrop = true;
+                    }
+                }
+            }
+            let i = i + 1;
+        }
+
+        if (shouldDrop) {
+            let fleetDirection = -fleetDirection;
+            let dx = 0;
+            let dy = 10;
+        }
+        else {
+            let dy = 0;
+            if (fleetDirection = 1) {
+                let dx = 5;
+            }
+            else {
+                let dx = -5;
+            }
+        }
+
+        let i = 0;
+        while (i < invaderCount) {
+            if (invAlive[i] = 1) {
+                do eraseInvader(i);
+                let invX[i] = invX[i] + dx;
+                let invY[i] = invY[i] + dy;
+
+                if ((invY[i] + invaderHeight) > (playerY - 7)) {
+                    let gameOver = true;
+                }
+
+                do drawInvader(i);
+            }
+            let i = i + 1;
+        }
+
+        return;
+    }
+
+    /** Draws every live invader. */
+    method void drawAllInvaders() {
+        var int i;
+
+        let i = 0;
+        while (i < invaderCount) {
+            do drawInvader(i);
+            let i = i + 1;
+        }
+
+        return;
+    }
+
+    /** Draws a single invader if it is alive. */
+    method void drawInvader(int i) {
+        var int x, y;
+
+        if (invAlive[i] = 1) {
+            let x = invX[i];
+            let y = invY[i];
+            do Screen.setColor(true);
+            do Screen.drawRectangle(x, y, x + invaderWidth, y + invaderHeight);
+            do Screen.drawRectangle(x + 3, y - 4, x + 5, y - 1);
+            do Screen.drawRectangle(x + 13, y - 4, x + 15, y - 1);
+        }
+
+        return;
+    }
+
+    /** Erases one invader's full drawing area. */
+    method void eraseInvader(int i) {
+        var int x, y;
+
+        let x = invX[i];
+        let y = invY[i];
+        do Screen.setColor(false);
+        do Screen.drawRectangle(x, y - 4, x + invaderWidth, y + invaderHeight);
+        return;
+    }
+
+    /** Draws the static UI text. */
+    method void drawHud() {
+        do Output.moveCursor(22, 0);
+        do Output.printString("Score: 0");
+        do Output.moveCursor(22, 20);
+        do Output.printString("Arrows move  Space fire  Q quit");
+        return;
+    }
+
+    /** Refreshes the score text. */
+    method void updateScore() {
+        do Output.moveCursor(22, 7);
+        do Output.printString("    ");
+        do Output.moveCursor(22, 7);
+        do Output.printInt(score);
+        return;
+    }
+
+    /** Shows the final state. */
+    method void showEndMessage() {
+        do Output.moveCursor(10, 25);
+        if (won) {
+            do Output.printString("YOU WIN");
+        }
+        else {
+            do Output.printString("GAME OVER");
+        }
+
+        do Output.moveCursor(12, 21);
+        do Output.printString("Press Q or ESC to exit");
+        return;
+    }
+
+    /** Keeps the final screen visible until the user exits. */
+    method void waitForExit() {
+        var char key;
+
+        while (~exit) {
+            let key = Keyboard.keyPressed();
+            if (key = 81) {
+                let exit = true;
+            }
+            if (key = 113) {
+                let exit = true;
+            }
+            if (key = 140) {
+                let exit = true;
+            }
+            do Sys.wait(50);
+        }
+
+        return;
+    }
+}
