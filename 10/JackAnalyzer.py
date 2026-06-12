@@ -1,15 +1,20 @@
+import glob
+import sys
+import os
+
 from JackTokenizer import JackTokenizer
 
 
-class JackAnalyzer:
-    def __init__():
-        pass
-
-
+# python JackAnalyzer.py ArrayTest/Main.jack
+# python JackAnalyzer.py ExpressionLessSquare
 if __name__ == '__main__':
-    file = './ArrayTest/Main.jack'
+    input_path = sys.argv[1]
 
-    tokenizer = JackTokenizer(file)
-    
-    while tokenizer.hasMoreTokens():
-        tokenizer.advance()
+    if os.path.isfile(input_path) and input_path.endswith('.jack'): # file case
+        tokenizer = JackTokenizer(input_path).execute()
+    elif os.path.isdir(input_path): # folder case
+        filenames = glob.glob(os.path.join(input_path, '*.jack'))
+        for filename in filenames:
+            tokenizer = JackTokenizer(filename).execute()
+    else:
+        raise ValueError(f'Invalid input path: {input_path}')
