@@ -1,0 +1,64 @@
+// This file is part of www.nand2tetris.org
+// and the book "The Elements of Computing Systems"
+// by Nisan and Schocken, MIT Press.
+// File name: projects/12/Sys.jack
+
+/**
+ * A library that supports various program execution services.
+ */
+class Sys {
+
+    /** Performs all the initializations required by the OS. */
+    function void init() {
+        // Order matters: Math.init allocates its table of powers, so the heap
+        // has to exist first. Array and String have no init of their own.
+        do Memory.init();
+        do Math.init();
+        do Screen.init();
+        do Output.init();
+        do Keyboard.init();
+        // The bootstrap contract ends here: ROM[0] set SP and called us, and
+        // our job is to hand control to the application's entry point.
+        do Main.main();
+        do Sys.halt();
+        return;
+    }
+
+    /** Halts the program execution. */
+    function void halt() {
+        // Nothing can actually stop the CPU, so hold it still instead.
+        while (true) {}
+        return;
+    }
+
+    /** Waits approximately duration milliseconds and returns.  */
+    function void wait(int duration) {
+        var int i, j;
+
+        if (duration < 0) {
+            do Sys.error(1);
+        }
+        // 52 was picked by measuring this loop against the reference OS on the
+        // VM emulator: wait(1000) costs it ~527k VM steps, and this matches
+        // that. The constant is inherently platform-specific -- real hardware,
+        // or a faster emulator, would need it retuned.
+        let i = 0;
+        while (i < duration) {
+            let j = 0;
+            while (j < 52) {
+                let j = j + 1;
+            }
+            let i = i + 1;
+        }
+        return;
+    }
+
+    /** Displays the given error code in the form "ERR<errorCode>",
+     *  and halts the program's execution. */
+    function void error(int errorCode) {
+        do Output.printString("ERR");
+        do Output.printInt(errorCode);
+        do Sys.halt();
+        return;
+    }
+}

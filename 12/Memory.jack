@@ -1,0 +1,98 @@
+// This file is part of www.nand2tetris.org
+// and the book "The Elements of Computing Systems"
+// by Nisan and Schocken, MIT Press.
+// File name: projects/12/Memory.jack
+/**
+ * This library provides two services: direct access to the computer's main
+ * memory (RAM), and allocation and recycling of memory blocks. The Hack RAM
+ * consists of 32,768 words, each holding a 16-bit binary number.
+ */ 
+class Memory {
+    // Not a real array: `ram` is set to 0 so that ram[i] resolves to RAM[0 + i],
+    // giving this class direct access to the entire host RAM. See init().
+    static Array ram;
+
+    // Head of the list of free heap segments. A segment at address `seg` is
+    // laid out as:  ram[seg] = number of data words, ram[seg+1] = next segment
+    // (0 at the end), followed by the data words themselves at seg+2.
+    static int freeList;
+
+    /** Initializes the class. */
+    function void init() {
+        let ram = 0;
+        // The Hack heap spans 2048..16383; two of those words become the
+        // header of the single segment that initially holds all of it.
+        let freeList = 2048;
+        let ram[freeList] = 14334;      // 16384 - 2048 - 2
+        let ram[freeList + 1] = 0;      // 0 terminates the list
+        return;
+    }
+
+    /** Returns the RAM value at the given address. */
+    function int peek(int address) {
+        return ram[address];
+    }
+
+    /** Sets the RAM value at the given address to the given value. */
+    function void poke(int address, int value) {
+        let ram[address] = value;
+        return;
+    }
+
+    /** Finds an available RAM block of the given size and returns
+     *  a reference to its base address. */
+    function int alloc(int size) {
+        var int seg, prev, block;
+
+        // First fit. `prev` trails `seg` so that a segment handed over whole
+        // can be unlinked; 0 means `seg` is still the head of the list.
+        let prev = 0;
+        let seg = freeList;
+        while (~(seg = 0)) {
+
+            if (~(ram[seg] < (size + 2))) {
+                // Room to spare, so carve the block off the tail. Taking it
+                // from the tail rather than the head means the segment stays
+                // linked where it is and merely shrinks, and the list needs no
+                // rewiring at all.
+                let block = seg + 2 + ram[seg] - size;
+                let ram[block - 2] = size;
+                let ram[block - 1] = 0;
+                let ram[seg] = ram[seg] - (size + 2);
+                return block;
+            }
+
+            if (~(ram[seg] < size)) {
+                // Too tight to leave a remainder behind, but big enough to
+                // serve as-is: hand over the whole segment, header included,
+                // and unlink it. Without this case a block freed at size n
+                // could never satisfy a later request for n, because the test
+                // above insists on room for a second header.
+                if (prev = 0) {
+                    let freeList = ram[seg + 1];
+                } else {
+                    let ram[prev + 1] = ram[seg + 1];
+                }
+                let ram[seg + 1] = 0;
+                return seg + 2;
+            }
+
+            let prev = seg;
+            let seg = ram[seg + 1];
+        }
+        return 0;   // out of memory
+    }
+
+    /** De-allocates the given object (cast as an array) by making
+     *  it available for future allocations. */
+    function void deAlloc(Array o) {
+        var int seg;
+        // Step back over the two header words alloc put in front of the data.
+        // ram[seg] still holds the size alloc recorded there, so the block is
+        // already a well-formed segment; only the link has to be restored.
+        let seg = o - 2;
+        let ram[seg + 1] = freeList;
+        let freeList = seg;
+        return;
+    }
+}

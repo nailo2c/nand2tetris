@@ -1,0 +1,156 @@
+// This file is part of www.nand2tetris.org
+// and the book "The Elements of Computing Systems"
+// by Nisan and Schocken, MIT Press.
+// File name: projects/12/Math.jack
+/**
+ *  A library of commonly used mathematical functions.
+ *  All functions runs in O(n), where n is the number of bits used
+ *  for representing a two's complement integer value (16 in the Hack computer). 
+ *  Note: Jack compilers implement multiplication and division
+ *  using calls to OS functions in this class.
+ */
+class Math {
+    static int n;             // Number of bits used for representing a two's complement integer
+    static Array powersOfTwo; // Stores 2^0, 2^1, 2^2,..., 2^(n-1)
+    static int divRemainder;  // Running remainder threaded through divideAbs
+
+    // Initializes the Math library.
+    function void init() {
+        var int i;
+        let n = 16;
+        let powersOfTwo = Array.new(n);
+        // Built by doubling rather than by multiplying: `*` compiles to a call
+        // to multiply(), which reads this very array. powersOfTwo[15] comes out
+        // negative (-32768), which is correct -- it is only ever used as a mask.
+        let powersOfTwo[0] = 1;
+        let i = 1;
+        while (i < n) {
+            let powersOfTwo[i] = powersOfTwo[i - 1] + powersOfTwo[i - 1];
+            let i = i + 1;
+        }
+        return;
+    }
+
+    /** Returns the product of x and y. 
+     *  When a Jack compiler detects the multiplication operator '*'
+     *  in an expression, it handles it by invoking this method. 
+     *  Thus, in Jack, x * y and Math.multiply(x,y) return the same value. */
+    function int multiply(int x, int y) {
+        var int sum, shiftedX, i;
+
+        // Shift-and-add: for every 1 bit in y, add x shifted left by that many
+        // positions. O(16) additions instead of O(y) of them.
+        let sum = 0;
+        let shiftedX = x;
+        let i = 0;
+        while (i < n) {
+            // Bit i of y, inlined rather than pushed into a bit() helper: this
+            // runs 16 times for every '*' in every Jack program on the machine,
+            // and the call overhead would dwarf the test itself.
+            if (~((y & powersOfTwo[i]) = 0)) {
+                let sum = sum + shiftedX;
+            }
+            let shiftedX = shiftedX + shiftedX;
+            let i = i + 1;
+        }
+        // Signs need no special handling: in two's complement this is already
+        // correct, and overflow wraps to the right answer modulo 2^16.
+        return sum;
+    }
+
+    /** Returns the integer part of x / y.
+     *  When a Jack compiler detects the division operator '/'
+     *  an an expression, it handles it by invoking this method.
+     *  Thus, x/y and Math.divide(x,y) return the same value. */
+    function int divide(int x, int y) {
+        var int q;
+
+        if (y = 0) {
+            do Sys.error(3);
+        }
+        // Divide the magnitudes, then put the sign back. Written as nested ifs
+        // rather than one boolean expression because Jack applies no operator
+        // precedence, so a mixed &/| condition would not mean what it reads as.
+        let q = Math.divideAbs(Math.abs(x), Math.abs(y));
+        if (x < 0) {
+            if (y < 0) {
+                return q;
+            }
+            return -q;
+        }
+        if (y < 0) {
+            return -q;
+        }
+        return q;
+    }
+
+    /** Long division on non-negative operands, halving the problem at each
+     *  step. Threads the running remainder through divRemainder instead of
+     *  recomputing q*y, so the whole routine needs no multiplication at all. */
+    function int divideAbs(int x, int y) {
+        var int q;
+
+        // y < 0 means the doubling below overflowed, which is the signal that
+        // the divisor has already grown past anything x can contain.
+        if ((y > x) | (y < 0)) {
+            let divRemainder = x;
+            return 0;
+        }
+        let q = Math.divideAbs(x, y + y);
+        if (divRemainder < y) {
+            return q + q;
+        }
+        let divRemainder = divRemainder - y;
+        return q + q + 1;
+    }
+
+    /** Returns the integer part of the square root of x. */
+    function int sqrt(int x) {
+        var int y, j, t, tSquared;
+
+        if (x < 0) {
+            do Sys.error(4);
+        }
+        // Binary search on the result, one bit at a time from the top down:
+        // sqrt is monotonic and its inverse (squaring) is cheap, so each bit
+        // can be accepted or rejected with a single multiplication.
+        let y = 0;
+        let j = 7;                  // n/2 - 1, with n = 16
+        while (~(j < 0)) {
+            let t = y + powersOfTwo[j];
+            let tSquared = t * t;
+            // The tSquared > 0 half rejects the overflow cases, where the
+            // square wrapped into the negatives and would otherwise sail
+            // through the "not greater than x" test.
+            if ((~(tSquared > x)) & (tSquared > 0)) {
+                let y = t;
+            }
+            let j = j - 1;
+        }
+        return y;
+    }
+
+    /** Returns the greater value. */
+    function int max(int a, int b) {
+        if (a > b) {
+            return a;
+        }
+        return b;
+    }
+
+    /** Returns the smaller value. */
+    function int min(int a, int b) {
+        if (a < b) {
+            return a;
+        }
+        return b;
+    }
+
+    /** Returns the absolute value of x. */
+    function int abs(int x) {
+        if (x < 0) {
+            return -x;
+        }
+        return x;
+    }
+}

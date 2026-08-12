@@ -1,0 +1,232 @@
+// This file is part of www.nand2tetris.org
+// and the book "The Elements of Computing Systems"
+// by Nisan and Schocken, MIT Press.
+// File name: projects/12/Screen.jack
+/**
+ * A library of functions for displaying graphics on the screen.
+ * The Hack physical screen consists of 512 rows (indexed 0..511, top to bottom)
+ * of 256 pixels each (indexed 0..255, left to right). The top left pixel on 
+ * the screen is indexed (0,0).
+ */
+class Screen {
+    static Array screen;        // the memory map, based at 16384
+    static boolean color;       // true = black
+    static Array powersOfTwo;   // single-bit masks, 2^0 .. 2^15
+
+    /** Initializes the Screen. */
+    function void init() {
+        var int i;
+
+        let screen = 16384;
+        let color = true;
+        // Math keeps an identical table, but statics are private to a class,
+        // so this one is built here rather than reached across for.
+        let powersOfTwo = Array.new(16);
+        let powersOfTwo[0] = 1;
+        let i = 1;
+        while (i < 16) {
+            let powersOfTwo[i] = powersOfTwo[i - 1] + powersOfTwo[i - 1];
+            let i = i + 1;
+        }
+        return;
+    }
+
+    /** Erases the entire screen. */
+    function void clearScreen() {
+        var int i;
+
+        let i = 0;
+        while (i < 8192) {      // 512 * 256 / 16 words
+            let screen[i] = 0;
+            let i = i + 1;
+        }
+        return;
+    }
+
+    /** Sets the current color, to be used for all subsequent drawXXX commands.
+     *  Black is represented by true, white by false. */
+    function void setColor(boolean b) {
+        let color = b;
+        return;
+    }
+
+    /** Draws the (x,y) pixel, using the current color. */
+    function void drawPixel(int x, int y) {
+        var int address, mask;
+
+        if ((x < 0) | (x > 511) | (y < 0) | (y > 255)) {
+            do Sys.error(7);
+        }
+        // A word holds 16 horizontally adjacent pixels, so the word index is
+        // x/16 and the bit within it is x mod 16. Both come out of `&` and a
+        // shift-free division here because 16 is a power of two.
+        let address = (y * 32) + (x / 16);
+        let mask = powersOfTwo[x & 15];
+        // Read, flip one bit, write back: the machine cannot address a single
+        // bit, and a blind write would erase the 15 neighbours sharing the word.
+        if (color) {
+            let screen[address] = screen[address] | mask;
+        } else {
+            let screen[address] = screen[address] & (~mask);
+        }
+        return;
+    }
+
+    /** Draws a line from pixel (x1,y1) to pixel (x2,y2), using the current color. */
+    function void drawLine(int x1, int y1, int x2, int y2) {
+        var int dx, dy, stepX, stepY, a, b, diff, x, y;
+
+        if ((x1 < 0) | (x1 > 511) | (x2 < 0) | (x2 > 511) |
+            (y1 < 0) | (y1 > 255) | (y2 < 0) | (y2 > 255)) {
+            do Sys.error(8);
+        }
+        // Horizontal and vertical lines are worth special-casing: they are by
+        // far the most common (every rectangle and circle is made of them) and
+        // the horizontal one can move 16 pixels per store instead of 1.
+        if (y1 = y2) {
+            do Screen.drawHorizontal(x1, x2, y1);
+            return;
+        }
+        if (x1 = x2) {
+            do Screen.drawVertical(x1, y1, y2);
+            return;
+        }
+
+        let dx = x2 - x1;
+        let dy = y2 - y1;
+        if (dx < 0) {
+            let stepX = -1;
+            let dx = -dx;
+        } else {
+            let stepX = 1;
+        }
+        if (dy < 0) {
+            let stepY = -1;
+            let dy = -dy;
+        } else {
+            let stepY = 1;
+        }
+
+        // Bresenham. diff tracks a*dy - b*dx, so deciding whether to step
+        // sideways or down needs a sign test rather than two divisions, and
+        // the loop stays pure addition. x and y are carried along directly so
+        // that plotting never has to multiply a step count by its direction.
+        let a = 0;
+        let b = 0;
+        let diff = 0;
+        let x = x1;
+        let y = y1;
+        while (~(a > dx) & ~(b > dy)) {
+            do Screen.drawPixel(x, y);
+            if (diff < 0) {
+                let a = a + 1;
+                let x = x + stepX;
+                let diff = diff + dy;
+            } else {
+                let b = b + 1;
+                let y = y + stepY;
+                let diff = diff - dx;
+            }
+        }
+        return;
+    }
+
+    /** Draws a horizontal run of pixels, filling whole words where it can. */
+    function void drawHorizontal(int x1, int x2, int y) {
+        var int left, right, rowBase, address, lastAddress;
+
+        if (x1 < x2) {
+            let left = x1;
+            let right = x2;
+        } else {
+            let left = x2;
+            let right = x1;
+        }
+        let rowBase = y * 32;
+
+        // Trim the ragged ends one pixel at a time until both edges sit on a
+        // word boundary; everything between is then a solid store.
+        if ((left / 16) = (right / 16)) {
+            while (~(left > right)) {
+                do Screen.drawPixel(left, y);
+                let left = left + 1;
+            }
+            return;
+        }
+        while (~((left & 15) = 0)) {
+            do Screen.drawPixel(left, y);
+            let left = left + 1;
+        }
+        while (~((right & 15) = 15)) {
+            do Screen.drawPixel(right, y);
+            let right = right - 1;
+        }
+        let address = rowBase + (left / 16);
+        let lastAddress = rowBase + (right / 16);
+        while (~(address > lastAddress)) {
+            // color is a boolean, so true is -1: all sixteen bits at once.
+            let screen[address] = color;
+            let address = address + 1;
+        }
+        return;
+    }
+
+    /** Draws a vertical run of pixels. */
+    function void drawVertical(int x, int y1, int y2) {
+        var int top, bottom;
+
+        if (y1 < y2) {
+            let top = y1;
+            let bottom = y2;
+        } else {
+            let top = y2;
+            let bottom = y1;
+        }
+        while (~(top > bottom)) {
+            do Screen.drawPixel(x, top);
+            let top = top + 1;
+        }
+        return;
+    }
+
+    /** Draws a filled rectangle whose top left corner is (x1, y1)
+     *  and bottom right corner is (x2,y2), using the current color. */
+    function void drawRectangle(int x1, int y1, int x2, int y2) {
+        var int y;
+
+        if ((x1 < 0) | (x2 > 511) | (y1 < 0) | (y2 > 255) |
+            (x1 > x2) | (y1 > y2)) {
+            do Sys.error(9);
+        }
+        let y = y1;
+        while (~(y > y2)) {
+            do Screen.drawHorizontal(x1, x2, y);
+            let y = y + 1;
+        }
+        return;
+    }
+
+    /** Draws a filled circle of radius r<=181 around (x,y), using the current color. */
+    function void drawCircle(int x, int y, int r) {
+        var int dy, halfWidth;
+
+        if ((x < 0) | (x > 511) | (y < 0) | (y > 255)) {
+            do Sys.error(12);
+        }
+        // r > 181 would overflow r*r during the Pythagoras step below.
+        if ((r < 0) | (r > 181)) {
+            do Sys.error(13);
+        }
+        // One horizontal chord per row: its half-width is sqrt(r^2 - dy^2),
+        // straight out of Pythagoras on the triangle from the centre.
+        let dy = -r;
+        while (~(dy > r)) {
+            let halfWidth = Math.sqrt((r * r) - (dy * dy));
+            do Screen.drawHorizontal(Math.max(x - halfWidth, 0),
+                                     Math.min(x + halfWidth, 511),
+                                     Math.min(Math.max(y + dy, 0), 255));
+            let dy = dy + 1;
+        }
+        return;
+    }
+}
